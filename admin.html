@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>لوحة تحكم نجف - الإدارة</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        :root { --blue: #18248b; --red: #8c0104; --white: #ffffff; --green: #27ae60; --gray: #f0f2f5; }
+        body { margin: 0; font-family: 'Segoe UI', sans-serif; display: flex; background: var(--gray); height: 100vh; overflow: hidden; }
+        #loginScreen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--blue); color: white; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 3000; }
+        #loginScreen input { padding: 12px; width: 280px; margin: 10px; border-radius: 5px; border: none; }
+        #loginScreen button { padding: 12px 40px; background: var(--red); color: white; border: none; cursor: pointer; }
+        .sidebar { width: 260px; background: var(--blue); color: white; padding: 20px 10px; display: flex; flex-direction: column; }
+        .menu-item { padding: 12px; margin: 5px 0; cursor: pointer; border-radius: 5px; display: flex; align-items: center; gap: 10px; }
+        .menu-item:hover, .menu-item.active { background: rgba(255,255,255,0.1); border-right: 4px solid var(--red); }
+        .main { flex: 1; padding: 20px; overflow-y: auto; }
+        .section { display: none; }
+        .section.active { display: block; }
+        .form-box { background: white; padding: 25px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        table { width: 100%; border-collapse: collapse; background: white; }
+        th, td { padding: 15px; border-bottom: 1px solid #eee; text-align: center; }
+        .order-card { background: white; padding: 15px; border-radius: 5px; margin-bottom: 10px; border-left: 5px solid var(--blue); cursor: pointer; }
+        .chat-layout { display: flex; height: 75vh; background: #fff; border-radius: 15px; overflow: hidden; }
+        .chat-list { width: 300px; border-left: 1px solid #e0e0e0; overflow-y: auto; }
+        .chat-area { flex: 1; display: flex; flex-direction: column; background: #efeae2; }
+        .chat-messages-box { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+        .msg-bubble { padding: 10px; border-radius: 10px; max-width: 70%; }
+        .msg-me { background: #d9fdd3; align-self: flex-end; }
+        .msg-other { background: #fff; align-self: flex-start; }
+    </style>
+</head>
+<body>
+    <audio id="alarmSound" src="https://assets.mixkit.co/active_storage/sfx/995/995-preview.mp3" loop></audio>
+    <div id="loginScreen">
+        <h1>بوابة الموظفين - نجف</h1>
+        <input type="text" id="username" placeholder="اسم الموظف">
+        <input type="password" id="password" placeholder="كلمة المرور">
+        <button id="loginBtn">دخول</button>
+    </div>
+    <div class="sidebar">
+        <h2 id="adminNameDisplay" style="text-align:center;"></h2>
+        <div class="menu-item active" onclick="nav('live-orders')"><i class="fas fa-bell"></i> الطلبات الحية</div>
+        <div class="menu-item" onclick="nav('dashboard')"><i class="fas fa-history"></i> السجل</div>
+        <div class="menu-item" onclick="nav('chat')"><i class="fas fa-comments"></i> شات العملاء</div>
+        <div class="menu-item" onclick="logoutStaff()" style="background:var(--red); margin-top:auto;"><i class="fas fa-sign-out-alt"></i> خروج</div>
+    </div>
+    <div class="main">
+        <div id="live-orders" class="section active">
+            <h3>الطلبات الجديدة</h3>
+            <div id="newOrdersList"></div>
+        </div>
+        <div id="dashboard" class="section">
+            <h3>سجل الطلبات</h3>
+            <table><thead><tr><th>الوقت</th><th>العميل</th><th>المبلغ</th><th>الحالة</th></tr></thead><tbody id="historyTableBody"></tbody></table>
+        </div>
+        <div id="chat" class="section">
+            <div class="chat-layout">
+                <div id="chatUsersList" class="chat-list"></div>
+                <div class="chat-area">
+                    <div id="adminChatBox" class="chat-messages-box"></div>
+                    <div style="padding:10px; display:flex;"><input type="text" id="adminChatInput" style="flex:1;"><button onclick="sendAdminMsg()">إرسال</button></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getDatabase, ref, push, set, update, onValue, remove } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+        const firebaseConfig = {
+          apiKey: "AIzaSyDi0582RlkH0GTFK6GIiLqZZOJn-zRi5vs",
+          authDomain: "nagaf-e2810.firebaseapp.com",
+          databaseURL: "https://nagaf-e2810-default-rtdb.firebaseio.com",
+          projectId: "nagaf-e2810",
+          storageBucket: "nagaf-e2810.firebasestorage.app",
+          messagingSenderId: "1049815841886",
+          appId: "1:1049815841886:web:a27ca703b985a4645bc8cf",
+          measurementId: "G-QS18B2N7EZ"
+        };
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+
+        let currentUser = JSON.parse(localStorage.getItem('nagaf_staff_user'));
+        let activeChatUser = null;
+
+        if(currentUser) loginSuccess(currentUser);
+
+        document.getElementById('loginBtn').addEventListener('click', () => {
+            const u = document.getElementById('username').value, p = document.getElementById('password').value;
+            if(u === 'admin' && p === '123') {
+                currentUser = {name: 'المدير', role: 'admin'};
+                localStorage.setItem('nagaf_staff_user', JSON.stringify(currentUser));
+                loginSuccess(currentUser);
+            } else alert('خطأ');
+        });
+
+        function loginSuccess(user) {
+            document.getElementById('loginScreen').style.display = 'none';
+            document.getElementById('adminNameDisplay').innerText = user.name;
+            startSystem();
+        }
+
+        window.logoutStaff = () => { localStorage.removeItem('nagaf_staff_user'); location.reload(); }
+        window.nav = (id) => { document.querySelectorAll('.section').forEach(s => s.classList.remove('active')); document.getElementById(id).classList.add('active'); }
+
+        function startSystem() {
+            onValue(ref(db, 'orders'), (s) => renderOrders(s.val() || {}));
+            onValue(ref(db, 'chats'), (s) => renderChatList(s.val() || {}));
+        }
+
+        function renderOrders(data) {
+            const list = document.getElementById('newOrdersList'); list.innerHTML = '';
+            const hist = document.getElementById('historyTableBody'); hist.innerHTML = '';
+            Object.entries(data).reverse().forEach(([k, o]) => {
+                if(o.status === 'pending') {
+                    list.innerHTML += `<div class="order-card" onclick="upStatus('${k}')"><h4>${o.customerName}</h4><p>${o.total} ج - ${o.address}</p></div>`;
+                }
+                hist.innerHTML += `<tr><td>${new Date(o.timestamp).toLocaleTimeString()}</td><td>${o.customerName}</td><td>${o.total}</td><td>${o.status}</td></tr>`;
+            });
+        }
+
+        window.upStatus = (k) => { if(confirm('تغيير الحالة لمكتمل؟')) update(ref(db, 'orders/'+k), {status: 'completed'}); }
+
+        function renderChatList(d) {
+            const list = document.getElementById('chatUsersList'); list.innerHTML = '';
+            Object.keys(d).forEach(phone => {
+                list.innerHTML += `<div style="padding:15px; border-bottom:1px solid #eee; cursor:pointer;" onclick="window.loadChat('${phone}')">${phone}</div>`;
+            });
+        }
+
+        window.loadChat = (phone) => {
+            activeChatUser = phone;
+            onValue(ref(db, 'chats/'+phone), (s) => {
+                const box = document.getElementById('adminChatBox'); box.innerHTML = '';
+                Object.values(s.val()||{}).forEach(m => {
+                    box.innerHTML += `<div class="msg-bubble ${m.sender==='admin'?'msg-me':'msg-other'}">${m.text}</div>`;
+                });
+                box.scrollTop = box.scrollHeight;
+            });
+        }
+
+        window.sendAdminMsg = () => {
+            const inp = document.getElementById('adminChatInput');
+            if(inp.value && activeChatUser) {
+                push(ref(db, 'chats/'+activeChatUser), {sender:'admin', text:inp.value, timestamp:Date.now()});
+                inp.value = '';
+            }
+        }
+    </script>
+</body>
+</html>
